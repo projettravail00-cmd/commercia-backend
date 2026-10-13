@@ -6,6 +6,7 @@ const storeRoutes = require('./routes/storeRoutes');
 const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const botRoutes = require('./routes/botRoutes');
+const sessionRoutes = require('./routes/sessionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,6 +20,7 @@ app.use('/api/stores', storeRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/webhook', botRoutes);
+app.use('/api/session', sessionRoutes);
 
 // Route d'état du serveur (Health check)
 app.get('/health', (req, res) => {

@@ -1,5 +1,6 @@
 const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
 const { generateAIResponse } = require('../services/aiService');
+
 // GET /api/webhook/whatsapp (Handshake de vérification Meta WhatsApp Cloud API)
 function verifyMetaWebhook(req, res) {
   const mode = req.query['hub.mode'];
@@ -46,7 +47,7 @@ async function handleWhatsAppWebhook(req, res) {
       store = memoryDb.stores.find(s => s.id === sId) || memoryDb.stores[0];
     }
 
-    // Détection intelligente du mode
+    // Détection intelligente du mode : si mode explicite ou si message de gestion financière/stock
     const cleanPhone = (p) => (p || '').replace(/[^0-9]/g, '');
     const isOwnerPhone = cleanPhone(sender_phone) && cleanPhone(store.phone) && cleanPhone(sender_phone) === cleanPhone(store.phone);
     const isBossIntent = lower.includes('bilan') || lower.includes('caisse') || lower.includes('ga neni') || lower.includes('point des ventes') || lower.includes('arrivage');
@@ -78,10 +79,12 @@ async function handleWhatsAppWebhook(req, res) {
     // LOGIQUE MODE PATRON (Commerçant / Maman au Marché)
     // ========================================================
     if (isBoss) {
+      // Intention 1 : Bilan / Point des ventes (Français ou Éwé : "Ga neni", "Bilan", "Point")
       const isBalance = lower.includes('bilan') || lower.includes('vente') || 
                         lower.includes('point') || lower.includes('ga neni') || 
                         lower.includes('combien j\'ai');
 
+      // Intention 2 : Ajout de produit par vocal ou message (Français ou Éwé/Mina)
       const isAddProduct = lower.includes('nouveau') || lower.includes('ajoute') || 
                            lower.includes('arrivage') || lower.includes('va va') || 
                            lower.includes('yeye');
@@ -139,6 +142,7 @@ async function handleWhatsAppWebhook(req, res) {
           replyText = `*Bien reçu Patron !*\nArticle ajouté instantanément à votre catalogue :\n• Article : *${prodName}*\n• Prix de vente : *${detectedPrice.toLocaleString('fr-FR')} FCFA*\n• Stock enregistré : *${detectedStock} pièces*\n\nL'assistant IA présente déjà cet article à vos clients avec sa photo !`;
         }
       }
+      // Intention 3 : État des stocks
       else if (lower.includes('stock') || lower.includes('reste') || lower.includes('susɔ')) {
         const listStr = products.slice(0, 5).map(p => `• ${p.name} : *${p.stock} dispo* (${Number(p.price).toLocaleString('fr-FR')} F)`).join('\n');
         replyText = `*[État des stocks en direct]*\n${listStr}\n\nEnvoyez un vocal ou une photo pour ajouter un nouvel article à tout moment.`;
@@ -150,10 +154,12 @@ async function handleWhatsAppWebhook(req, res) {
     // LOGIQUE MODE CLIENT (Acheteur WhatsApp)
     // ========================================================
     else {
+      // Question en Éwé / Mina du client
       if (lower.includes('e-kpɔ neni') || lower.includes('pagne le asinye') || lower.includes('ga neni')) {
         const p = products[0] || { name: 'Pagne Wax Hollandais', price: 25000, stock: 5 };
         replyText = `Woezo ! Ee, *${p.name}* le asinye !\n• E-kpɔ : *${Number(p.price).toLocaleString('fr-FR')} FCFA*\n• Stock si susɔ : *${p.stock} pièces*\n\nÈ-di be yeadze order via ${store.payment_method} a ?`;
       }
+      // Sneakers / Baskets
       else if (lower.includes('basket') || lower.includes('sneaker') || lower.includes('nike')) {
         const p = products.find(x => x.name.toLowerCase().includes('sneaker')) || products[0];
         if (p) {
@@ -162,15 +168,32 @@ async function handleWhatsAppWebhook(req, res) {
           replyText = `Nos baskets sont en stock. Quelle taille recherchez-vous ?`;
         }
       } 
+      // Montres / Tech
       else if (lower.includes('montre')) {
         const p = products.find(x => x.name.toLowerCase().includes('montre')) || products[1];
         const pName = p ? p.name : 'Montre Connectée AMOLED V4';
         const pPrice = p ? Number(p.price).toLocaleString('fr-FR') : '25 000';
         replyText = `La *${pName}* est disponible à *${pPrice} FCFA*. Suivi santé et autonomie 7 jours. Dans quel quartier êtes-vous pour la livraison express ?`;
       } 
-      else if (lower.includes('livr') || lower.includes('agoe') || lower.includes('agoè') || lower.includes('quartier')) {
-        replyText = `Nous assurons la livraison rapide dans la zone de *${store.location}* !\n• Délai : Moins de 2h.\n• Tarif express : 1 000 à 1 500 FCFA.\n\nSouhaitez-vous valider votre commande par Mobile Money ?`;
+      // Vente en gros / Revendeur
+      else if (lower.includes('prix de gros') || lower.includes('en gros') || lower.includes('grossiste') || lower.includes('revendeur') || lower.includes('carton') || lower.includes('quantité') || lower.includes('remise spéciale') || lower.includes('partenariat')) {
+        replyText = `*Demande de prix de gros transmise à la direction*\nPour les tarifs revendeurs et les achats en volume, la gérante de *${store.name}* traite directement avec vous pour vous accorder la meilleure réduction.\n\nJe viens de lui envoyer une alerte avec vos coordonnées. Elle va vous contacter sur WhatsApp dans les plus brefs délais !`;
+      }
+      // Litiges / Réclamations / Remboursements
+      else if (lower.includes('litige') || lower.includes('réclamation') || lower.includes('reclamation') || lower.includes('rembours') || lower.includes('problème') || lower.includes('probleme') || lower.includes('abîmé') || lower.includes('abime') || lower.includes('cassé') || lower.includes('casse') || lower.includes('retard') || lower.includes('pas reçu') || lower.includes('arnaque') || lower.includes('trompé') || lower.includes('erreur')) {
+        replyText = `*Prise en charge prioritaire par la responsable*\nNous sommes sincèrement désolés pour ce désagrément. La satisfaction de nos clients est notre priorité absolue.\n\nVotre dossier est immédiatement transmis à la gérante de *${store.name}*. Elle prend personnellement contact avec vous par message WhatsApp pour résoudre cette situation sans attendre.`;
+      }
+      // Livraison adaptée à la politique de la boutique
+      else if (lower.includes('livr') || lower.includes('exped') || lower.includes('coursier') || lower.includes('agoe') || lower.includes('agoè') || lower.includes('quartier')) {
+        if (store.delivery_mode === 'pickup') {
+          const sched = store.delivery_schedule ? ` Horaires de retrait : ${store.delivery_schedule}.` : " Ouvert du lundi au samedi aux heures ouvrées.";
+          replyText = `Notre boutique ne fait pas de livraison à domicile. Vous pouvez venir retirer votre achat directement sur place à notre adresse : *${store.location}*.${sched}\n\nSouhaitez-vous réserver un article pour votre passage ?`;
+        } else {
+          const sched = store.delivery_schedule ? `\n• Programme : *${store.delivery_schedule}*` : "\n• Délai : Moins de 2h par coursier";
+          replyText = `Nous assurons la livraison rapide dans la zone de *${store.location}* !${sched}\n• Tarif : 1 000 à 1 500 FCFA selon votre quartier.\n\nVeuillez indiquer votre quartier exact pour planifier l'envoi dès validation Mobile Money !`;
+        }
       } 
+      // Validation Paiement Mobile Money
       else if (lower.includes('payer') || lower.includes('t-money') || lower.includes('moov') || lower.includes('wave') || lower.includes('valide')) {
         const newCmdId = "CMD-" + Math.floor(1000 + Math.random() * 9000);
         replyText = `Parfait ! Voici le récapitulatif de votre commande auprès de *${store.name}* :\n\n[Facture Proforma ${newCmdId}]\n• Article : Sneakers Air Street Pro (Taille 42)\n• Montant net : 23 500 FCFA (livraison express incluse)\n• Mode de règlement : *${store.payment_method}*\n\nPour confirmer immédiatement le règlement, effectuez votre transfert au numéro marchand : *${store.phone}*.\n\nVotre colis est préparé dès réception du paiement !`;
@@ -197,24 +220,26 @@ async function handleWhatsAppWebhook(req, res) {
         replyText = `Merci pour votre message ! Bienvenue chez *${store.name}*. Nos articles sont visibles dans le catalogue. Voulez-vous des informations sur nos stocks ou nos tarifs ?`;
       }
     }
- // Amélioration par IA générative (si configurée)
- if (!createdOrder && !createdProduct) {
-   try {
-     const aiReply = await generateAIResponse({
-       store,
-       products,
-       orders,
-       userMessage: message,
-       isBoss,
-       senderPhone: sender_phone
-     });
-     if (aiReply) {
-       replyText = aiReply;
-     }
-   } catch (aiErr) {
-     console.warn('[AI] Fallback utilisé:', aiErr.message);
-   }
- }
+
+    // Amélioration par IA générative (si configurée)
+    if (!createdOrder && !createdProduct) {
+      try {
+        const aiReply = await generateAIResponse({
+          store,
+          products,
+          orders,
+          userMessage: message,
+          isBoss,
+          senderPhone: sender_phone
+        });
+        if (aiReply) {
+          replyText = aiReply;
+        }
+      } catch (aiErr) {
+        console.warn('[AI] Failed to generate AI reply, fallback used:', aiErr.message);
+      }
+    }
+
     // Sauvegarder le message dans l'historique
     const msgRecord = {
       store_id: sId,

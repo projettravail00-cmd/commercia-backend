@@ -2,12 +2,19 @@
 // Moteur Groq LLM haute performance avec fallback logique résilient
 
 async function generateAIResponse({ store, products, orders, userMessage, isBoss, senderPhone }) {
-  const groqKey = process.env.GROQ_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY || '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';
+
   const catalogContext = products.map(p => 
     `- ${p.name} | Prix: ${Number(p.price).toLocaleString('fr-FR')} FCFA | Stock: ${p.stock} | Variantes: ${p.variants || 'Standard'}`
   ).join('\n');
 
   const totalSales = orders.reduce((s, o) => s + Number(o.amount), 0);
+
+  const deliveryPolicyPrompt = (store.delivery_mode === 'pickup')
+    ? `POLITIQUE DE LIVRAISON :\n- La boutique NE FAIT PAS de livraison à domicile. Les clients doivent obligatoirement venir retirer leurs achats sur place à : ${store.location}. Horaires de retrait : ${store.delivery_schedule || 'Du lundi au samedi aux heures ouvrées'}.\n- Si le client demande une livraison, informe-le poliment que les retraits se font uniquement en boutique et donne-lui les horaires.`
+    : `POLITIQUE DE LIVRAISON :\n- La boutique propose un service de livraison selon ce programme fixé par la gérante : ${store.delivery_schedule || 'Livraisons assurées par coursier dans la ville'}.\n- Si le client demande une livraison, donne-lui ces informations et demande son quartier précis pour organiser le coursier dès réception du paiement.`;
+
+  const complexQuestionsPrompt = `GESTION DES QUESTIONS COMPLEXES, RÉCLAMATIONS ET PRIX DE GROS :\n- Si le client demande un prix de gros / tarif revendeur, un achat en grand volume, fait une réclamation (litige, retard, colis abîmé, remboursement) ou pose une question hors catalogue :\n  RÈGLE ABSOLUE : N'invente JAMAIS de tarif de gros ni de promesse commerciale.\n  Réponds poliment que sa demande nécessite l'accord direct de la gérante, que tu lui transmets immédiatement l'alerte avec son numéro, et qu'elle va le contacter personnellement sur WhatsApp sous peu.`;
 
   const systemPrompt = `Tu es l'assistante commerciale officielle et intelligente de la boutique "${store.name}", située à ${store.location}.
 Mode de paiement Mobile Money accepté : ${store.payment_method} au numéro ${store.phone}.
@@ -19,11 +26,15 @@ BILAN COMMERCIAL :
 - Total des ventes : ${orders.length} commandes enregistrées
 - Chiffre d'affaires total encaissé : ${totalSales.toLocaleString('fr-FR')} FCFA
 
+${deliveryPolicyPrompt}
+
+${complexQuestionsPrompt}
+
 CONSIGNES DE RÉPONSE STRICTES :
 1. RÈGLE CRUCIALE : N'utilise AUCUN emoji. Zéro emoji dans tes réponses (interdiction formelle d'emojis).
 2. Tu comprends et parles couramment le Français, l'Éwé et le Mina. Réponds dans la même langue que l'interlocuteur.
 3. Sois très chaleureuse, polie, accueillante et efficace comme une excellente commerçante ouest-africaine.
-${isBoss ? `4. L'interlocuteur est le PATRON / GÉRANT de la boutique. Donne-lui des chiffres précis s'il demande son bilan, ou confirme l'ajout d'article.` : `4. L'interlocuteur est un CLIENT. Renseigne-le sur les prix, les pointures, la livraison et invite-le à régler par ${store.payment_method} pour réserver.`}
+${isBoss ? `4. L'interlocuteur est le PATRON / GÉRANT de la boutique. Donne-lui des chiffres précis s'il demande son bilan, ou confirme l'ajout d'article.` : `4. L'interlocuteur est un CLIENT. Renseigne-le sur les prix, les pointures, applique la politique de livraison ci-dessus et invite-le à régler par ${store.payment_method} pour réserver.`}
 5. Reste concise : 2 à 4 phrases maximum par message, adaptées au format WhatsApp.`;
 
   if (groqKey) {
@@ -63,7 +74,7 @@ ${isBoss ? `4. L'interlocuteur est le PATRON / GÉRANT de la boutique. Donne-lui
     }
   }
 
-  return null;
+  return null; // Fallback logique par défaut
 }
 
 module.exports = {
