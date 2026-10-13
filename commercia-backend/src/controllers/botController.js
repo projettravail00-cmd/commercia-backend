@@ -1,5 +1,5 @@
 const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
-
+const { generateAIResponse } = require('../services/aiService');
 // GET /api/webhook/whatsapp (Handshake de vérification Meta WhatsApp Cloud API)
 function verifyMetaWebhook(req, res) {
   const mode = req.query['hub.mode'];
