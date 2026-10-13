@@ -6,7 +6,8 @@ const {
   default: makeWASocket,
   DisconnectReason,
   useMultiFileAuthState,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  Browsers
 } = require('@whiskeysockets/baileys');
 
 const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
@@ -86,7 +87,7 @@ async function getOrInitSession(storeId) {
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
-      browser: ['CommercIA Assistant', 'Chrome', '1.0.0'],
+      browser: Browsers.macOS('Desktop'),
       syncFullHistory: false
     });
 
