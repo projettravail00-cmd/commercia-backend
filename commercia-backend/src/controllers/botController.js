@@ -197,7 +197,24 @@ async function handleWhatsAppWebhook(req, res) {
         replyText = `Merci pour votre message ! Bienvenue chez *${store.name}*. Nos articles sont visibles dans le catalogue. Voulez-vous des informations sur nos stocks ou nos tarifs ?`;
       }
     }
-
+ // Amélioration par IA générative (si configurée)
+ if (!createdOrder && !createdProduct) {
+   try {
+     const aiReply = await generateAIResponse({
+       store,
+       products,
+       orders,
+       userMessage: message,
+       isBoss,
+       senderPhone: sender_phone
+     });
+     if (aiReply) {
+       replyText = aiReply;
+     }
+   } catch (aiErr) {
+     console.warn('[AI] Fallback utilisé:', aiErr.message);
+   }
+ }
     // Sauvegarder le message dans l'historique
     const msgRecord = {
       store_id: sId,
