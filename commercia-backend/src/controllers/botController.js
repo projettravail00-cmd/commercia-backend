@@ -16,15 +16,26 @@ function verifyMetaWebhook(req, res) {
     return res.status(403).json({ error: 'Token de vérification invalide' });
   }
 }
-const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
 
 // POST /api/webhook/whatsapp
 async function handleWhatsAppWebhook(req, res) {
   try {
-    const { store_id, sender_phone, message, mode } = req.body;
+    let { store_id, sender_phone, message, mode } = req.body || {};
+
+    // Support natif des messages entrants via Meta WhatsApp Cloud API
+    if (req.body && req.body.entry && req.body.entry[0] && req.body.entry[0].changes) {
+      const change = req.body.entry[0].changes[0];
+      if (change && change.value && change.value.messages && change.value.messages[0]) {
+        const metaMsg = change.value.messages[0];
+        if (metaMsg.type === 'text') {
+          message = metaMsg.text.body;
+          sender_phone = metaMsg.from;
+        }
+      }
+    }
+
     const sId = store_id || '11111111-1111-1111-1111-111111111111';
-    const lower = (message || '').toLowerCase();
-    const isBoss = mode === 'boss';
+    const lower = (message || '').trim().toLowerCase();
 
     // 1. Récupérer la boutique
     let store;
@@ -34,6 +45,12 @@ async function handleWhatsAppWebhook(req, res) {
     } else {
       store = memoryDb.stores.find(s => s.id === sId) || memoryDb.stores[0];
     }
+
+    // Détection intelligente du mode
+    const cleanPhone = (p) => (p || '').replace(/[^0-9]/g, '');
+    const isOwnerPhone = cleanPhone(sender_phone) && cleanPhone(store.phone) && cleanPhone(sender_phone) === cleanPhone(store.phone);
+    const isBossIntent = lower.includes('bilan') || lower.includes('caisse') || lower.includes('ga neni') || lower.includes('point des ventes') || lower.includes('arrivage');
+    const isBoss = mode === 'boss' || isOwnerPhone || (isBossIntent && mode !== 'client');
 
     // 2. Récupérer les produits
     let products;
@@ -61,12 +78,10 @@ async function handleWhatsAppWebhook(req, res) {
     // LOGIQUE MODE PATRON (Commerçant / Maman au Marché)
     // ========================================================
     if (isBoss) {
-      // Intention 1 : Bilan / Point des ventes (Français ou Éwé : "Ga neni", "Bilan", "Point")
       const isBalance = lower.includes('bilan') || lower.includes('vente') || 
                         lower.includes('point') || lower.includes('ga neni') || 
                         lower.includes('combien j\'ai');
 
-      // Intention 2 : Ajout de produit par vocal ou message (Français ou Éwé/Mina)
       const isAddProduct = lower.includes('nouveau') || lower.includes('ajoute') || 
                            lower.includes('arrivage') || lower.includes('va va') || 
                            lower.includes('yeye');
@@ -124,7 +139,6 @@ async function handleWhatsAppWebhook(req, res) {
           replyText = `*Bien reçu Patron !*\nArticle ajouté instantanément à votre catalogue :\n• Article : *${prodName}*\n• Prix de vente : *${detectedPrice.toLocaleString('fr-FR')} FCFA*\n• Stock enregistré : *${detectedStock} pièces*\n\nL'assistant IA présente déjà cet article à vos clients avec sa photo !`;
         }
       }
-      // Intention 3 : État des stocks
       else if (lower.includes('stock') || lower.includes('reste') || lower.includes('susɔ')) {
         const listStr = products.slice(0, 5).map(p => `• ${p.name} : *${p.stock} dispo* (${Number(p.price).toLocaleString('fr-FR')} F)`).join('\n');
         replyText = `*[État des stocks en direct]*\n${listStr}\n\nEnvoyez un vocal ou une photo pour ajouter un nouvel article à tout moment.`;
@@ -136,12 +150,10 @@ async function handleWhatsAppWebhook(req, res) {
     // LOGIQUE MODE CLIENT (Acheteur WhatsApp)
     // ========================================================
     else {
-      // Question en Éwé / Mina du client
       if (lower.includes('e-kpɔ neni') || lower.includes('pagne le asinye') || lower.includes('ga neni')) {
         const p = products[0] || { name: 'Pagne Wax Hollandais', price: 25000, stock: 5 };
         replyText = `Woezo ! Ee, *${p.name}* le asinye !\n• E-kpɔ : *${Number(p.price).toLocaleString('fr-FR')} FCFA*\n• Stock si susɔ : *${p.stock} pièces*\n\nÈ-di be yeadze order via ${store.payment_method} a ?`;
       }
-      // Sneakers / Baskets
       else if (lower.includes('basket') || lower.includes('sneaker') || lower.includes('nike')) {
         const p = products.find(x => x.name.toLowerCase().includes('sneaker')) || products[0];
         if (p) {
@@ -150,18 +162,15 @@ async function handleWhatsAppWebhook(req, res) {
           replyText = `Nos baskets sont en stock. Quelle taille recherchez-vous ?`;
         }
       } 
-      // Montres / Tech
       else if (lower.includes('montre')) {
         const p = products.find(x => x.name.toLowerCase().includes('montre')) || products[1];
         const pName = p ? p.name : 'Montre Connectée AMOLED V4';
         const pPrice = p ? Number(p.price).toLocaleString('fr-FR') : '25 000';
         replyText = `La *${pName}* est disponible à *${pPrice} FCFA*. Suivi santé et autonomie 7 jours. Dans quel quartier êtes-vous pour la livraison express ?`;
       } 
-      // Livraison
       else if (lower.includes('livr') || lower.includes('agoe') || lower.includes('agoè') || lower.includes('quartier')) {
         replyText = `Nous assurons la livraison rapide dans la zone de *${store.location}* !\n• Délai : Moins de 2h.\n• Tarif express : 1 000 à 1 500 FCFA.\n\nSouhaitez-vous valider votre commande par Mobile Money ?`;
       } 
-      // Validation Paiement Mobile Money
       else if (lower.includes('payer') || lower.includes('t-money') || lower.includes('moov') || lower.includes('wave') || lower.includes('valide')) {
         const newCmdId = "CMD-" + Math.floor(1000 + Math.random() * 9000);
         replyText = `Parfait ! Voici le récapitulatif de votre commande auprès de *${store.name}* :\n\n[Facture Proforma ${newCmdId}]\n• Article : Sneakers Air Street Pro (Taille 42)\n• Montant net : 23 500 FCFA (livraison express incluse)\n• Mode de règlement : *${store.payment_method}*\n\nPour confirmer immédiatement le règlement, effectuez votre transfert au numéro marchand : *${store.phone}*.\n\nVotre colis est préparé dès réception du paiement !`;
@@ -214,6 +223,7 @@ async function handleWhatsAppWebhook(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
+
 module.exports = {
   handleWhatsAppWebhook,
   verifyMetaWebhook
