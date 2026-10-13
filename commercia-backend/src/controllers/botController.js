@@ -1,5 +1,23 @@
 const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
 
+// GET /api/webhook/whatsapp (Handshake de vérification Meta WhatsApp Cloud API)
+function verifyMetaWebhook(req, res) {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  const verifyToken = process.env.META_VERIFY_TOKEN || 'commercia_secret_token_2026';
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    console.log('[WHATSAPP] Meta Webhook verified successfully');
+    return res.status(200).send(challenge);
+  } else {
+    console.warn('[WHATSAPP] Verification failed: Token mismatch');
+    return res.status(403).json({ error: 'Token de vérification invalide' });
+  }
+}
+const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
+
 // POST /api/webhook/whatsapp
 async function handleWhatsAppWebhook(req, res) {
   try {
