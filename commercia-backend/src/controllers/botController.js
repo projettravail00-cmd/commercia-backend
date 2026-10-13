@@ -214,7 +214,7 @@ async function handleWhatsAppWebhook(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
-
 module.exports = {
-  handleWhatsAppWebhook
+  handleWhatsAppWebhook,
+  verifyMetaWebhook
 };
