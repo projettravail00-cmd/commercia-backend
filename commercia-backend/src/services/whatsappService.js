@@ -14,6 +14,7 @@ const { supabase, isRealSupabase, memoryDb } = require('../config/supabase');
 const { generateAIResponse } = require('./aiService');
 
 const activeSessions = new Map();
+const conversationHistories = new Map();
 
 const SESSIONS_DIR = path.join(__dirname, '../../sessions');
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -201,13 +202,50 @@ async function launchSocket(storeId, forceClean = false) {
           const { store, products, orders } = await getStoreData(sId);
 
           const cleanPhone = (p) => (p || '').replace(/[^0-9]/g, '');
-          const isBoss = cleanPhone(senderPhone) === cleanPhone(store.phone);
+          const isBoss = cleanPhone(senderPhone) === cleanPhone(store.phone) ||
+                         (store.owner_phone && cleanPhone(senderPhone) === cleanPhone(store.owner_phone));
+
+          // Récupération de l'historique récent de la discussion
+          const convKey = `${sId}_${cleanPhone(senderPhone)}`;
+          let history = conversationHistories.get(convKey) || [];
+
+          if (history.length === 0) {
+            try {
+              if (isRealSupabase) {
+                const { data: dbMsgs } = await supabase
+                  .from('messages')
+                  .select('sender, content, created_at')
+                  .eq('store_id', sId)
+                  .eq('sender_phone', `+${cleanPhone(senderPhone)}`)
+                  .order('created_at', { ascending: false })
+                  .limit(6);
+                if (dbMsgs && dbMsgs.length > 0) {
+                  history = dbMsgs.reverse().map(m => ({
+                    role: m.sender === 'client' ? 'user' : 'assistant',
+                    content: m.content
+                  }));
+                }
+              } else {
+                const memMsgs = (memoryDb.messages || [])
+                  .filter(m => m.store_id === sId && cleanPhone(m.sender_phone) === cleanPhone(senderPhone))
+                  .slice(0, 6)
+                  .reverse();
+                history = memMsgs.map(m => ({
+                  role: m.sender === 'client' ? 'user' : 'assistant',
+                  content: m.content
+                }));
+              }
+            } catch (histLoadErr) {
+              console.warn('[WA-BAILEYS] Erreur lecture historique:', histLoadErr.message);
+            }
+          }
 
           let replyText = await generateAIResponse({
             store,
             products,
             orders,
             userMessage: text,
+            history,
             isBoss,
             senderPhone: `+${senderPhone}`
           });
@@ -218,23 +256,41 @@ async function launchSocket(storeId, forceClean = false) {
 
           replyText = replyText.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
 
+          // Mise à jour de la mémoire de conversation
+          history.push({ role: 'user', content: text });
+          history.push({ role: 'assistant', content: replyText });
+          if (history.length > 10) history = history.slice(-10);
+          conversationHistories.set(convKey, history);
+
+          if (replyText.includes('transmets votre demande directement à la responsable') || replyText.includes('prendra personnellement la relève')) {
+            console.log(`[WA-ALERTE-PATRON] Relai requis pour client +${senderPhone}: "${text}"`);
+          }
+
           await new Promise(res => setTimeout(res, 800));
 
           await sock.sendMessage(remoteJid, { text: replyText });
           console.log(`[WA-BAILEYS] Réponse IA envoyée à +${senderPhone}`);
 
           try {
-            const msgRecord = {
+            const clientRecord = {
               store_id: sId,
               sender: isBoss ? 'boss' : 'client',
               sender_phone: `+${senderPhone}`,
               content: text,
               created_at: new Date().toISOString()
             };
+            const botRecord = {
+              store_id: sId,
+              sender: 'bot',
+              sender_phone: `+${senderPhone}`,
+              content: replyText,
+              created_at: new Date(Date.now() + 500).toISOString()
+            };
             if (isRealSupabase) {
-              await supabase.from('messages').insert([msgRecord]);
+              await supabase.from('messages').insert([clientRecord, botRecord]);
             } else {
-              memoryDb.messages.unshift(msgRecord);
+              memoryDb.messages.unshift(botRecord);
+              memoryDb.messages.unshift(clientRecord);
             }
           } catch (histErr) {
             console.warn('[WA-BAILEYS] Erreur historique message:', histErr.message);

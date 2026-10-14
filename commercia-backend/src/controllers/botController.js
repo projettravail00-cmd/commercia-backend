@@ -224,11 +224,40 @@ async function handleWhatsAppWebhook(req, res) {
     // Amélioration par IA générative (si configurée)
     if (!createdOrder && !createdProduct) {
       try {
+        let history = [];
+        try {
+          if (isRealSupabase) {
+            const { data: dbMsgs } = await supabase
+              .from('messages')
+              .select('sender, content, created_at')
+              .eq('store_id', sId)
+              .eq('sender_phone', sender_phone || '+228 90 00 00 00')
+              .order('created_at', { ascending: false })
+              .limit(6);
+            if (dbMsgs && dbMsgs.length > 0) {
+              history = dbMsgs.reverse().map(m => ({
+                role: m.sender === 'client' ? 'user' : 'assistant',
+                content: m.content
+              }));
+            }
+          } else {
+            const memMsgs = (memoryDb.messages || [])
+              .filter(m => m.store_id === sId && m.sender_phone === (sender_phone || '+228 90 00 00 00'))
+              .slice(0, 6)
+              .reverse();
+            history = memMsgs.map(m => ({
+              role: m.sender === 'client' ? 'user' : 'assistant',
+              content: m.content
+            }));
+          }
+        } catch (e) {}
+
         const aiReply = await generateAIResponse({
           store,
           products,
           orders,
           userMessage: message,
+          history,
           isBoss,
           senderPhone: sender_phone
         });
@@ -240,18 +269,27 @@ async function handleWhatsAppWebhook(req, res) {
       }
     }
 
-    // Sauvegarder le message dans l'historique
-    const msgRecord = {
+    // Sauvegarder le message client ET la réponse du bot dans l'historique
+    const clientRecord = {
       store_id: sId,
       sender: isBoss ? 'boss' : 'client',
       sender_phone: sender_phone || '+228 90 00 00 00',
       content: message,
       created_at: new Date().toISOString()
     };
+    const botRecord = {
+      store_id: sId,
+      sender: 'bot',
+      sender_phone: sender_phone || '+228 90 00 00 00',
+      content: replyText,
+      created_at: new Date(Date.now() + 500).toISOString()
+    };
+
     if (isRealSupabase) {
-      await supabase.from('messages').insert([msgRecord]);
+      await supabase.from('messages').insert([clientRecord, botRecord]);
     } else {
-      memoryDb.messages.unshift(msgRecord);
+      memoryDb.messages.unshift(botRecord);
+      memoryDb.messages.unshift(clientRecord);
     }
 
     return res.json({
