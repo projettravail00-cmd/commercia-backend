@@ -211,6 +211,38 @@ async function launchSocket(storeId, forceClean = false) {
                          cleanPhone(senderPhone) === cleanPhone(store.phone) ||
                          (store.owner_phone && cleanPhone(senderPhone) === cleanPhone(store.owner_phone));
 
+          // VÉRIFICATION STRICTE DE L'ABONNEMENT & ESSAI 2 JOURS (DÉCONNEXION AUTOMATIQUE)
+          const now = Date.now();
+          const createdAt = new Date(store.created_at || store.updated_at || now).getTime();
+          const trialEndsAt = createdAt + (2 * 24 * 60 * 60 * 1000); // 2 jours d'essai = 48 heures
+
+          const statusStr = store.status || '';
+          let subStatus = 'trial';
+          let plan = 'pro';
+          let expiresAt = trialEndsAt;
+
+          const parts = statusStr.split(';');
+          for (const p of parts) {
+            if (p.startsWith('sub=')) subStatus = p.replace('sub=', '');
+            else if (p.startsWith('plan=')) plan = p.replace('plan=', '');
+            else if (p.startsWith('exp=')) expiresAt = new Date(p.replace('exp=', '')).getTime();
+          }
+
+          const isExpired = (subStatus === 'trial' && now > trialEndsAt) ||
+                            (subStatus === 'active' && now > expiresAt) ||
+                            (subStatus === 'expired');
+
+          if (isExpired) {
+            console.log(`[WA-ABONNEMENT-EXPIRE] Store "${store.name}" (${sId}) expiré. IA déconnectée.`);
+            if (isBoss) {
+              const bossExpiredReply = `Bonjour Patron ! Votre période d'essai gratuit de 2 jours est terminée et l'IA est actuellement déconnectée pour vos clients.\n\nPour réactiver votre IA immédiatement pour 30 jours, activez votre abonnement Pro (2 800 FCFA/mois) depuis votre tableau de bord ou contactez le support CommercIA.`;
+              await sock.sendMessage(remoteJid, { text: bossExpiredReply });
+            } else {
+              console.log(`[WA-IA-DECONNECTEE] Message de +${senderPhone} ignoré car l'essai boutique a expiré.`);
+            }
+            continue;
+          }
+
           // Récupération de l'historique récent de la discussion
           const convKey = `${sId}_${cleanPhone(senderPhone)}`;
           let history = conversationHistories.get(convKey) || [];
