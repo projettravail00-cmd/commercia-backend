@@ -58,10 +58,14 @@ async function generateAIResponse({ store, products, orders, userMessage, histor
    - Interdiction stricte et formelle d'inclure le moindre emoji dans tes réponses.`;
 
   const bossPrompt = `MODE PATRON (INTERLOCUTEUR = GÉRANT / PROPRIÉTAIRE DU COMMERCE) :
-- L'interlocuteur est le GÉRANT de la boutique.
+- L'interlocuteur est le GÉRANT / PATRON de la boutique.
 - Réponds-lui poliment ("Bonjour Patron !" ou "Bonjour Madame la responsable !").
-- S'il demande son bilan, donne-lui le récapitulatif des ${orders.length} commandes et du chiffre d'affaires de ${totalSales.toLocaleString('fr-FR')} FCFA.
-- S'il demande "qui a écrit ?" ou les alertes, informe-le s'il y a des clients en attente de réponse.`;
+- S'il demande son bilan ("bilan", "ventes", "commandes", "chiffre"), donne-lui le récapitulatif des ${orders.length} commandes et du chiffre d'affaires de ${totalSales.toLocaleString('fr-FR')} FCFA.
+- S'il demande "qui a écrit ?" ou les alertes, informe-le s'il y a des clients en attente de réponse.
+- S'il demande son abonnement ("abonnement", "forfait", "combien", "renouvellement") :
+  * Forfait actif : Plan Pro (2 800 FCFA / mois)
+  * Statut : Actif
+  * Renouvellement Mobile Money : direct par T-Money au +228 96 09 82 23 ou Flooz au +228 90 23 45 67.`;
 
   const systemPrompt = `Tu es l'assistante commerciale officielle et intelligente de "${store.name}", située à ${store.location}.
 Mode de paiement Mobile Money : ${store.payment_method} au numéro ${store.phone}.
