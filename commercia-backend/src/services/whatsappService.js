@@ -180,10 +180,15 @@ async function launchSocket(storeId, forceClean = false) {
         if (m.type !== 'notify') return;
 
         for (const msg of m.messages) {
-          if (msg.key.fromMe) continue;
-
           const remoteJid = msg.key.remoteJid;
           if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
+
+          // Détecter si le commerçant s'écrit à lui-même ("Vous (Vous-même)" sur WhatsApp)
+          const botPhone = (sock.user?.id || '').split(':')[0].split('@')[0];
+          const isSelfChat = msg.key.fromMe && botPhone && remoteJid.startsWith(botPhone);
+
+          // Si c'est un message envoyé par le téléphone à un autre client, on ne répond pas
+          if (msg.key.fromMe && !isSelfChat) continue;
 
           const text = msg.message?.conversation ||
                        msg.message?.extendedTextMessage?.text ||
@@ -193,7 +198,7 @@ async function launchSocket(storeId, forceClean = false) {
           if (!text || text.trim() === '') continue;
 
           const senderPhone = remoteJid.split('@')[0];
-          console.log(`[WA-BAILEYS] Message reçu de +${senderPhone} pour store ${sId}: "${text}"`);
+          console.log(`[WA-BAILEYS] Message reçu de +${senderPhone} (Self-Chat: ${isSelfChat}) pour store ${sId}: "${text}"`);
 
           try {
             await sock.sendPresenceUpdate('composing', remoteJid);
@@ -202,7 +207,8 @@ async function launchSocket(storeId, forceClean = false) {
           const { store, products, orders } = await getStoreData(sId);
 
           const cleanPhone = (p) => (p || '').replace(/[^0-9]/g, '');
-          const isBoss = cleanPhone(senderPhone) === cleanPhone(store.phone) ||
+          const isBoss = isSelfChat ||
+                         cleanPhone(senderPhone) === cleanPhone(store.phone) ||
                          (store.owner_phone && cleanPhone(senderPhone) === cleanPhone(store.owner_phone));
 
           // Récupération de l'historique récent de la discussion
